@@ -1,18 +1,92 @@
-# Build and Release Folders
-bin-debug/
-bin-release/
-[Oo]bj/
-[Bb]in/
+#!/bin/bash
 
-# Other files and folders
-.settings/
+# Check if the script is being run with sudo/root privileges
+if [[ $EUID -ne 0 ]]; then
+    sudo bash "$0" "$@"
+    exit $?
+fi
 
-# Executables
-*.swf
-*.air
-*.ipa
-*.apk
+# Function to calculate the file size
+get_file_size() {
+    local file_path="$1"
+    local file_size=$(stat -c "%s" "$file_path")
+    echo "$file_size"
+}
 
-# Project files, i.e. `.project`, `.actionScriptProperties` and `.flexProperties`
-# should NOT be excluded as they contain compiler settings and other important
-# information for Eclipse / Flash Builder.
+# Function to format file size in a human-readable format
+format_file_size() {
+    local size_in_bytes="$1"
+    local -a suffixes=("B" "KB" "MB" "GB" "TB")
+
+    local index=0
+    while ((size_in_bytes > 1024)); do
+        size_in_bytes=$((size_in_bytes / 1024))
+        ((index++))
+    done
+
+    echo "$size_in_bytes ${suffixes[$index]}"
+}
+
+if [[ $1 == "--last" ]]; then
+    # Check if the backup directory exists
+    backup_dir="$(dirname "$2")/backup"
+    if [[ -d "$backup_dir" ]]; then
+        # Get the previous backup path
+        previous_backup_file="$(ls -t "$backup_dir" | head -n 1)"
+        if [[ -n "$previous_backup_file" ]]; then
+            previous_backup_path="$backup_dir/$previous_backup_file"
+
+            # Get the dimension of the previous backup file
+            previous_backup_size="$(get_file_size "$previous_backup_path")"
+            formatted_previous_backup_size="$(format_file_size "$previous_backup_size")"
+
+            # Echo the previous backup path and dimension
+            echo "Previous Backup file path: $previous_backup_path"
+            echo "Previous Backup file size: $formatted_previous_backup_size"
+        else
+            echo "No previous backup found."
+        fi
+    else
+        echo "Backup directory does not exist."
+    fi
+else
+    # Get the file name without full path
+    log_file_name="$(basename "$1")"
+
+    # Check if the log file exists
+    if [[ ! -f "$1" ]]; then
+        echo "File '$log_file_name' does not exist previously. Creating a new file."
+        touch "$1"
+    fi
+
+    # Check if the file was created or already existed
+    if [[ -f "$1" ]]; then
+        # Get the absolute path of the log file
+        log_file_path="$(realpath "$1")"
+
+        # Get the log file directory
+        log_file_dir="$(dirname "$log_file_path")"
+
+        # Create the backup directory in the same directory as the log file
+        backup_dir="$log_file_dir/backup"
+        mkdir -p "$backup_dir"
+
+        # Generate the backup file name with date and time separated by a hyphen
+        timestamp="$(date +"%Y-%m-%d-%H-%M-%S")"
+        backup_file="${log_file_name%.*}_${timestamp}.backup"
+
+        # Create the backup file path
+        backup_path="$backup_dir/$backup_file"
+
+        # Copy the original log file to the backup directory
+        cp "$log_file_path" "$backup_path"
+
+        # Edit the original log file using Vim
+        vim "$log_file_path"
+
+        # Echo the full path of the backup file
+        echo "Backup file path: $backup_path"
+    else
+        echo "Failed to create the file."
+    fi
+fi
